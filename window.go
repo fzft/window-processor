@@ -41,3 +41,5 @@ type WindowOperator interface {
 	SetMaxLateness(maxLateness int64)
 }
 
+
+
