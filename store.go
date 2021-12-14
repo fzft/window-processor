@@ -32,7 +32,7 @@ type AggregationStore interface {
 
 	// Aggregate generates the window aggregates
 	// On every AggregateWindow the aggregated value is set
-	Aggregate(aggregateWindows AggregationWindowCollector, minTs, maxTs, minCount, maxCount int64)
+	Aggregate(aggregateWindows *AggregationWindowCollector, minTs, maxTs, minCount, maxCount int64)
 
 	// AddSlice add a new slice at a specific index
 	AddSlice(index int, newSlice Slice)
@@ -57,6 +57,7 @@ type AggregationStoreFactory interface {
 type LazyAggregateStore struct {
 	slices []Slice
 }
+
 
 func (l *LazyAggregateStore) GetCurrentSlice() Slice {
 	return l.slices[len(l.slices)-1]
@@ -106,7 +107,7 @@ func (l *LazyAggregateStore) IsEmpty() bool {
 	return l.Size() == 0
 }
 
-func (l *LazyAggregateStore) Aggregate(aggregateWindows AggregationWindowCollector, minTs, maxTs, minCount, maxCount int64) {
+func (l *LazyAggregateStore) Aggregate(aggregateWindows *AggregationWindowCollector, minTs, maxTs, minCount, maxCount int64) {
 	startIndex := Max(int64(l.FindSliceIndexByTimestamp(minTs)), 0)
 	startIndex = Min(startIndex, int64(l.FindSliceIndexByCount(minCount)))
 	endIndex := Min(int64(l.Size()-1), int64(l.FindSliceIndexByTimestamp(maxTs)))

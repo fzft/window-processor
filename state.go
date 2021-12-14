@@ -1,6 +1,10 @@
 package window_processor
 
-import "github.com/emirpasic/gods/sets/treeset"
+import (
+	"github.com/emirpasic/gods/sets/treeset"
+	"github.com/emirpasic/gods/utils"
+)
+
 
 type State interface {
 	Clean()
@@ -36,7 +40,7 @@ type SetState interface {
 type StateFactory interface {
 	CreateValueState() ValueState
 	CreateListState() ListState
-	CreateSetState() SetState
+	CreateSetState(comparator utils.Comparator) SetState
 }
 
 type MemoryListState struct {
@@ -134,9 +138,9 @@ func (f MemoryStateFactory) CreateListState() ListState {
 	return &MemoryListState{}
 }
 
-func (f MemoryStateFactory) CreateSetState() SetState {
+func (f MemoryStateFactory) CreateSetState(comparator utils.Comparator) SetState {
 	return &MemorySetState{
-		values: treeset.NewWithIntComparator(),
+		values: treeset.NewWith(comparator),
 	}
 }
 
@@ -242,7 +246,7 @@ func (s *AggregateState) Clear() {
 	}
 }
 
-func (s *AggregateState) Merge(otherAggState AggregateState) {
+func (s *AggregateState) Merge(otherAggState *AggregateState) {
 	if s.isMergeable(otherAggState) {
 		for i, valueState := range otherAggState.aggregateValueStates {
 			s.aggregateValueStates[i].Merge(valueState)
@@ -250,7 +254,7 @@ func (s *AggregateState) Merge(otherAggState AggregateState) {
 	}
 }
 
-func (s *AggregateState) isMergeable(otherAggState AggregateState) bool {
+func (s *AggregateState) isMergeable(otherAggState *AggregateState) bool {
 	return len(otherAggState.aggregateValueStates) <= len(s.aggregateValueStates)
 }
 
@@ -317,6 +321,6 @@ func (s *AggregateWindowState) HasValue() bool {
 	return s.windowState.HasValues()
 }
 
-func (s *AggregateWindowState) AddState(aggState AggregateState) {
+func (s *AggregateWindowState) AddState(aggState *AggregateState) {
 	s.windowState.Merge(aggState)
 }

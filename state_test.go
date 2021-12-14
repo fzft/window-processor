@@ -23,7 +23,7 @@ func TestMemoryListState(t *testing.T) {
 }
 
 func TestMemorySetState(t *testing.T) {
-	s := stateFactory.CreateSetState()
+	s := stateFactory.CreateSetState(IntComparator)
 
 	s.Add(1)
 	s.Add(1)

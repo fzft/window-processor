@@ -1,9 +1,43 @@
 package window_processor
 
-import "sync"
+import (
+	"sync"
+)
 
 type Type interface {
 	IsMovable() bool
+}
+
+type Fixed struct{}
+
+func NewFixed() *Fixed {
+	return &Fixed{}
+}
+
+func (t *Fixed) IsMovable() bool {
+	return false
+}
+
+type Flexible struct {
+	count int
+}
+
+func NewFlexible(count int) *Flexible {
+	return &Flexible{
+		count: count,
+	}
+}
+
+func (t *Flexible) GetCount() int {
+	return t.count
+}
+
+func (t *Flexible) DecrementCount() {
+	t.count--
+}
+
+func (t *Flexible) IsMovable() bool {
+	return t.count == 1
 }
 
 type Slice interface {
@@ -38,7 +72,7 @@ type Slice interface {
 	GetCLast() int64
 
 	// GetAggState ...
-	GetAggState() AggregateState
+	GetAggState() *AggregateState
 }
 
 type AbstractSlice struct {
@@ -52,7 +86,7 @@ type AbstractSlice struct {
 	cLast  int64
 }
 
-func (s *AbstractSlice) GetAggState() AggregateState {
+func (s *AbstractSlice) GetAggState() *AggregateState {
 	panic("implement me")
 }
 
@@ -63,6 +97,7 @@ func NewAbstractSlice(startTs, endTs, cStart, cLast int64, t Type) *AbstractSlic
 		tEnd:   endTs,
 		cStart: cStart,
 		cLast:  cLast,
+		tFirst:  Max_Value,
 	}
 }
 
@@ -125,16 +160,90 @@ func (s *AbstractSlice) GetCLast() int64 {
 	return s.cLast
 }
 
-type EagerSlice struct {
-	AbstractSlice
-	state AggregateState
+func (s *AbstractSlice) SetCLast(cLast int64) {
+	s.cLast = cLast
 }
 
-func NewEagerSlice(stateFactory StateFactory)
+func (s *AbstractSlice) SetTFirst(tFirst int64) {
+	s.tFirst = tFirst
+}
+
+type EagerSlice struct {
+	*AbstractSlice
+	state *AggregateState
+}
+
+func NewEagerSlice(stateFactory StateFactory, windowManager *WindowManager, startTs, endTs, startC, endC int64, t Type) *EagerSlice {
+	s := new(EagerSlice)
+	s.AbstractSlice = NewAbstractSlice(startTs, endTs, startC, endC, t)
+	s.state = NewAggregateState(stateFactory, windowManager.GetAggregations(), nil)
+	return s
+}
 
 func (s *EagerSlice) AddElement(element interface{}, ts int64) {
 	s.AbstractSlice.AddElement(element, ts)
+	s.state.AddElement(element)
+}
 
+func (s *EagerSlice) GetAggState() *AggregateState {
+	return s.state
+}
+
+type LazySlice struct {
+	*AbstractSlice
+	state *AggregateState
+	// Defines StreamRecord slice
+	records SetState
+}
+
+func NewLazySlice(stateFactory StateFactory, windowManager *WindowManager, startTs, endTs, startC, endC int64, t Type) *LazySlice {
+	s := new(LazySlice)
+	s.records = stateFactory.CreateSetState(StreamRecordComparator)
+	s.AbstractSlice = NewAbstractSlice(startTs, endTs, startC, endC, t)
+	s.state = NewAggregateState(stateFactory, windowManager.GetAggregations(), s.records)
+	return s
+}
+
+func (s *LazySlice) AddElement(element interface{}, ts int64) {
+	s.AbstractSlice.AddElement(element, ts)
+	s.state.AddElement(element)
+	s.records.Add(NewStreamRecord(ts, element))
+}
+
+func (s *LazySlice) GetAggState() *AggregateState {
+	return s.state
+}
+
+func (s *LazySlice) PrependElement(newElement StreamRecord) {
+	s.AbstractSlice.AddElement(newElement.record, newElement.ts)
+	s.records.Add(newElement)
+	s.state.AddElement(newElement.record)
+}
+
+func (s *LazySlice) DropLastElement() StreamRecord {
+	dropRecord := s.records.DropLast().(StreamRecord)
+	s.SetCLast(s.GetCLast() - 1)
+	if !s.records.IsEmpty() {
+		currentLast := s.records.GetLast()
+		if r, ok := currentLast.(StreamRecord); ok {
+			s.SetTLast(r.ts)
+		}
+	}
+	s.state.RemoveElement(dropRecord)
+	return dropRecord
+}
+
+func (s *LazySlice) DropFirstElement() StreamRecord {
+	dropRecord := s.records.DropFirst().(StreamRecord)
+	currentFirst := s.records.GetFirst().(StreamRecord)
+	s.SetCLast(s.GetCLast() - 1)
+	s.SetTFirst(currentFirst.ts)
+	s.state.RemoveElement(dropRecord)
+	return dropRecord
+}
+
+func (s *LazySlice) GetRecords() SetState {
+	return s.records
 }
 
 type StreamRecord struct {
@@ -155,6 +264,139 @@ func (r StreamRecord) Equals(o interface{}) bool {
 	return false
 }
 
-func (r StreamRecord) CompareTo(o StreamRecord) bool {
-	return r.ts > o.ts
+// StreamRecordComparator provides a fast comparison on StreamRecord
+func StreamRecordComparator(a, b interface{}) int {
+	s1 := a.(StreamRecord)
+	s2 := b.(StreamRecord)
+	return Int64Compare(s1.ts, s2.ts)
+}
+
+type SliceFactory struct {
+	windowManager *WindowManager
+	stateFactory  StateFactory
+}
+
+func NewSliceFactory(windowManager *WindowManager, stateFactory StateFactory) SliceFactory {
+	return SliceFactory{windowManager: windowManager, stateFactory: stateFactory}
+}
+
+func (f SliceFactory) CreateSlice(startTs, maxValue, startCount, endCount int64, t Type) Slice {
+	if !f.windowManager.HasCountMeasure() && (!f.windowManager.HasContextAwareWindow() || f.windowManager.IsSessionWindowCase()) && f.windowManager.GetMaxLateness() > 0 {
+		return NewEagerSlice(f.stateFactory, f.windowManager, startTs, maxValue, startCount, endCount, t)
+	}
+	return NewLazySlice(f.stateFactory, f.windowManager, startTs, maxValue, startCount, endCount, t)
+}
+
+func (f SliceFactory) CreateSlice2(startTs, maxValue int64, t Type) Slice {
+	if !f.windowManager.HasCountMeasure() && (!f.windowManager.HasContextAwareWindow() || f.windowManager.IsSessionWindowCase()) && f.windowManager.GetMaxLateness() > 0 {
+		return NewEagerSlice(f.stateFactory, f.windowManager, startTs, maxValue, f.windowManager.GetCurrentCount(), f.windowManager.GetCurrentCount(), t)
+	}
+	return NewLazySlice(f.stateFactory, f.windowManager, startTs, maxValue, f.windowManager.GetCurrentCount(), f.windowManager.GetCurrentCount(), t)
+}
+
+type StreamSlicer struct {
+	sliceManager     *SliceManager
+	windowManager    *WindowManager
+	maxEventTime     int64
+	minNextEdgeTs    int64
+	minNextEdgeCount int64
+}
+
+func NewStreamSlicer(sliceManager *SliceManager, windowManager *WindowManager) *StreamSlicer {
+	return &StreamSlicer{
+		sliceManager:  sliceManager,
+		windowManager: windowManager,
+	}
+}
+
+// DetermineSlices processes every tuple in the data stream and checks if new slices have to be created
+func (ss *StreamSlicer) DetermineSlices(te int64) {
+	if ss.windowManager.HasCountMeasure() {
+		if ss.minNextEdgeCount == 0 || ss.windowManager.GetCurrentCount() == ss.minNextEdgeCount {
+			if ss.maxEventTime == 0 {
+				ss.maxEventTime = te
+			}
+			ss.sliceManager.AppendSlice(ss.maxEventTime, NewFixed())
+			ss.minNextEdgeCount = ss.calculateNextFixedEdgeCount()
+		}
+	}
+	if ss.windowManager.HasTimeMeasure() {
+		isInOrder := ss.isInOrder(te)
+		// only need to check for slices if the record is in order
+		if isInOrder {
+			if ss.windowManager.HasFixedWindows() && ss.minNextEdgeTs == 0 {
+				ss.minNextEdgeTs = ss.calculateNextFixedEdge(te)
+			}
+			flexCount := 0
+			if ss.windowManager.HasContextAwareWindow() {
+				flexCount = ss.calculateNextFlexEdge(te)
+			}
+
+			// Tumbling and Sliding windows
+			for ss.windowManager.HasFixedWindows() && te > ss.minNextEdgeTs {
+				if ss.minNextEdgeTs >= 0 {
+					ss.sliceManager.AppendSlice(ss.minNextEdgeTs, NewFixed())
+				}
+				ss.minNextEdgeTs = ss.calculateNextFixedEdge(te)
+			}
+
+			// Emit remaining separator if needed
+			if ss.minNextEdgeTs == te {
+				if flexCount > 0 {
+					ss.sliceManager.AppendSlice(ss.minNextEdgeTs, NewFlexible(flexCount))
+				} else {
+					ss.sliceManager.AppendSlice(ss.minNextEdgeTs, NewFlexible(1))
+				}
+				ss.minNextEdgeTs = ss.calculateNextFixedEdge(te)
+			} else if flexCount > 0 {
+				ss.sliceManager.AppendSlice(te, NewFlexible(flexCount))
+			}
+		}
+	}
+	ss.windowManager.IncrementCount()
+	ss.maxEventTime = Max(te, ss.maxEventTime)
+}
+
+func (ss *StreamSlicer) calculateNextFixedEdgeCount() int64 {
+	// next_edge will be the last edge
+	currentMinEdge := ss.minNextEdgeCount
+	tC := Max(ss.windowManager.GetCurrentCount(), currentMinEdge)
+	edge := Max_Value
+	for _, tw := range ss.windowManager.GetContextFreeWindows() {
+		if tw.GetMeasure() == Count {
+			newNextEdge := tw.AssignNextWindowStart(tC)
+			edge = Min(newNextEdge, edge)
+		}
+	}
+	return edge
+
+}
+
+func (ss *StreamSlicer) calculateNextFixedEdge(te int64) int64 {
+	currentMinEdge := ss.minNextEdgeTs
+	tC := Max(te-ss.windowManager.GetMaxLateness(), currentMinEdge)
+	edge := Max_Value
+	for _, tw := range ss.windowManager.contextFreeWindows {
+		if tw.GetMeasure() == Time {
+			newNextEdge := tw.AssignNextWindowStart(tC)
+			edge = Min(newNextEdge, edge)
+		}
+	}
+	return edge
+}
+
+func (ss *StreamSlicer) isInOrder(te int64) bool {
+	return te >= ss.maxEventTime
+}
+
+func (ss *StreamSlicer) calculateNextFlexEdge(te int64) int {
+	tC := Max(ss.maxEventTime, ss.minNextEdgeTs)
+	flexCount := 0
+	for _, cw := range ss.windowManager.GetContextAwareWindows() {
+		newNextEdge := cw.assignNextWindowStart(tC)
+		if te >= newNextEdge {
+			flexCount++
+		}
+	}
+	return flexCount
 }

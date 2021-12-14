@@ -13,7 +13,7 @@ type ContextFreeWindow interface {
 
 type ForwardContext interface {
 	Window
-	CreateContext() *WindowContext
+	CreateContext() Context
 }
 
 type FixedBandWindow struct {
@@ -57,7 +57,7 @@ func (w *FixedBandWindow) ClearDelay() int64 {
 type SessionWindow struct {
 	measure WindowMeasure
 	gap     int64
-	context *WindowContext
+	context *SessionContext
 }
 
 func NewSessionWindow(measure WindowMeasure, gap int64) *SessionWindow {
@@ -68,81 +68,14 @@ func (w *SessionWindow) GetMeasure() WindowMeasure {
 	return w.measure
 }
 
-func (w *SessionWindow) getSession(pos int64) int {
-	i := 0
-	for ; i <= w.context.numberOfActiveWindows(); i++ {
-		s := w.context.getWindow(i)
-		if s.getStart()-w.gap <= pos && s.getEnd()+w.gap >= pos {
-			return i
-		} else if s.getStart()-w.gap > pos {
-			return i - 1
-		}
-	}
-	return i - 1
-}
 
-func (w *SessionWindow) CreateContext() *WindowContext {
-	ctx := NewWindowContext()
+func (w *SessionWindow) CreateContext() Context {
+	ctx := NewSessionContext(w.measure)
 	w.context = ctx
 	return ctx
 }
 
-func (w *SessionWindow) UpdateContext(tuple interface{}, position int64) *ActiveWindow {
-	if w.context.hasActiveWindows() {
-		w.context.addNewWindow(0, position, position)
-		return w.context.getWindow(0)
-	}
 
-	sessionIndex := w.getSession(position)
-	if sessionIndex == -1 {
-		w.context.addNewWindow(0, position, position)
-	} else {
-		s := w.context.getWindow(sessionIndex)
-		if s.getStart()-w.gap > position {
-			return w.context.addNewWindow(sessionIndex, position, position)
-		} else if s.getStart() > position && s.getStart()-w.gap < position {
-			w.context.shiftStart(s, position)
-			if sessionIndex > 0 {
-				preSession := w.context.getWindow(sessionIndex - 1)
-				if preSession.getEnd()+w.gap >= s.getStart() {
-					return w.context.mergeWithPre(sessionIndex)
-				}
-			}
-			return s
-		} else if s.getEnd() < position && s.getEnd()+w.gap >= position {
-			w.context.shiftEnd(s, position)
-			if sessionIndex < w.context.numberOfActiveWindows()-1 {
-				nextSession := w.context.getWindow(sessionIndex - 1)
-				if s.getEnd()+w.gap >= nextSession.getStart() {
-					return w.context.mergeWithPre(sessionIndex + 1)
-				}
-			}
-		} else if s.getEnd()+w.gap < position {
-			return w.context.addNewWindow(sessionIndex+1, position, position)
-		}
-	}
-	return nil
-}
-
-func (w *SessionWindow) AssignNextWindowStart(pos int64) int64 {
-	return pos + w.gap
-}
-
-func (w *SessionWindow) TriggerWindows(aggregateWindows WindowCollector, lastWatermark, currentWatermark int64) {
-	s := w.context.getWindow(0)
-	for s.getEnd()+w.gap < currentWatermark {
-		aggregateWindows.Trigger(s.getStart(), s.getEnd()+w.gap, w.measure)
-		w.context.removeWindow(0)
-		if w.context.hasActiveWindows() {
-			return
-		}
-		s = w.context.getWindow(0)
-	}
-}
-
-func (w *SessionWindow) ClearDelay() int64 {
-	return -1
-}
 
 type SlidingWindow struct {
 	measure WindowMeasure

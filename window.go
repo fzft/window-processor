@@ -33,13 +33,6 @@ type WindowCollector interface {
 	Trigger(start, end int64, measure WindowMeasure)
 }
 
-type WindowOperator interface {
-	ProcessElement(el interface{}, ts int64)
-	ProcessWatermark(watermarkTs int64) []AggregateWindow
-	AddWindowAssigner(windowFunc AggregateFunction)
-	AddAggregation()
-	SetMaxLateness(maxLateness int64)
-}
 
 
 

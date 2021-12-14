@@ -32,6 +32,10 @@ type CloneablePartialStateFunction interface {
 	Clone(partialAggregate interface{}) interface{}
 }
 
+type ReduceAggregateFunction interface {
+	AggregateFunction
+}
+
 type SumAggregateFunction struct {
 }
 
@@ -54,5 +58,4 @@ func (f SumAggregateFunction) Combine(partialAggregate1, partialAggregate2 inter
 func (f SumAggregateFunction) Lower(input interface{}) interface{} {
 	return input
 }
-
 
