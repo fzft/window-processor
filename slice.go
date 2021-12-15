@@ -115,6 +115,7 @@ func (s *AbstractSlice) Merge(other Slice) {
 	s.tLast = Max(s.tLast, other.GetTLast())
 	s.tFirst = Min(s.tFirst, other.GetTFirst())
 	s.SetTEnd(Max(s.tEnd, other.GetTEnd()))
+	s.GetAggState().Merge(other.GetAggState())
 }
 
 func (s *AbstractSlice) GetTLast() int64 {
@@ -212,6 +213,15 @@ func (s *LazySlice) AddElement(element interface{}, ts int64) {
 
 func (s *LazySlice) GetAggState() *AggregateState {
 	return s.state
+}
+
+func (s *LazySlice) Merge(other Slice) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tLast = Max(s.tLast, other.GetTLast())
+	s.tFirst = Min(s.tFirst, other.GetTFirst())
+	s.SetTEnd(Max(s.tEnd, other.GetTEnd()))
+	s.GetAggState().Merge(other.GetAggState())
 }
 
 func (s *LazySlice) PrependElement(newElement StreamRecord) {
@@ -324,7 +334,7 @@ func (ss *StreamSlicer) DetermineSlices(te int64) {
 		isInOrder := ss.isInOrder(te)
 		// only need to check for slices if the record is in order
 		if isInOrder {
-			if ss.windowManager.HasFixedWindows() && ss.minNextEdgeTs == 0 {
+			if ss.windowManager.HasFixedWindows() && ss.minNextEdgeTs == Min_Value {
 				ss.minNextEdgeTs = ss.calculateNextFixedEdge(te)
 			}
 			flexCount := 0

@@ -53,3 +53,7 @@ func (s *SlicingWindowOperator) AddAggregation(windowFunc AggregateFunction) {
 func (s *SlicingWindowOperator) SetMaxLateness(maxLateness int64) {
 	s.windowManager.SetMaxLateness(maxLateness)
 }
+
+func (s *SlicingWindowOperator) AddWindowFunction(windowFunc AggregateFunction) {
+	s.windowManager.addAggregation(windowFunc)
+}

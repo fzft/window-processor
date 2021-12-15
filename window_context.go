@@ -92,7 +92,7 @@ func (c *WindowContext) numberOfActiveWindows() int {
 }
 
 func (c *WindowContext) shiftEnd(w *ActiveWindow, pos int64) {
-	//c.modifiedWindowEdges = append(c.modifiedWindowEdges, newShiftModification(w.end, pos))
+	//c.modifiedWindowEdges.Add(newShiftModification(w.end, pos))
 	w.setEnd(pos)
 }
 
@@ -135,7 +135,7 @@ func (w *ActiveWindow) setStart(start int64) {
 	w.start = start
 }
 
-// ActiveWindow provides a fast comparison on ActiveWindow
+// ActiveWindowComparator provides a fast comparison on ActiveWindow
 func ActiveWindowComparator(a, b interface{}) int {
 	s1 := a.(*ActiveWindow)
 	s2 := b.(*ActiveWindow)

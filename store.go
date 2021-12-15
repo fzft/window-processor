@@ -58,7 +58,6 @@ type LazyAggregateStore struct {
 	slices []Slice
 }
 
-
 func (l *LazyAggregateStore) GetCurrentSlice() Slice {
 	return l.slices[len(l.slices)-1]
 }
@@ -125,6 +124,8 @@ func (l *LazyAggregateStore) Aggregate(aggregateWindows *AggregationWindowCollec
 }
 
 func (l *LazyAggregateStore) AddSlice(index int, newSlice Slice) {
+	l.slices = append(l.slices, nil)
+	copy(l.slices[index+1:], l.slices[index:])
 	l.slices[index] = newSlice
 }
 
@@ -132,7 +133,10 @@ func (l *LazyAggregateStore) MergeSlice(sliceIndex int) {
 	sliceA := l.GetSlice(sliceIndex)
 	sliceB := l.GetSlice(sliceIndex + 1)
 	sliceA.Merge(sliceB)
-	l.slices = append(l.slices[:sliceIndex+1], l.slices[:sliceIndex+1]...)
+	l.slices[sliceIndex+1] = l.slices[len(l.slices)-1]
+	l.slices[len(l.slices)-1] = nil
+	l.slices = l.slices[:len(l.slices)-1]
+
 }
 
 func (l *LazyAggregateStore) FindSliceByEnd(start int64) int {

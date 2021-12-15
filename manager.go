@@ -151,7 +151,7 @@ func (m *WindowManager) addWindowAssigner(window Window) {
 	if window.GetMeasure() == Count {
 		m.hasCountMeasure = true
 	} else {
-		m.hasCountMeasure = false
+		m.hasTimeMeasure = true
 	}
 }
 
@@ -299,10 +299,10 @@ func (m *SliceManager) checkSliceEdges(modifications *hashset.Set) {
 					}
 				} else {
 					// move tuples to currentSlice
-					if lazyNextSlice, ok := currentSlice.(*LazySlice); ok {
+					if lazyNextSlice, ok := nextSlice.(*LazySlice); ok {
 						for lazyNextSlice.GetTFirst() < lazyNextSlice.GetTLast() && lazyNextSlice.GetTFirst() < post {
 							lastElement := lazyNextSlice.DropFirstElement()
-							lazyNextSlice.PrependElement(lastElement)
+							currentSlice.(*LazySlice).PrependElement(lastElement)
 						}
 					}
 				}

@@ -2,8 +2,11 @@ package window_processor
 
 import "time"
 
+// TimeMeasure definition of a time interval for windowing
 type TimeMeasure struct {
+	// the size of the windows
 	size int64
+	// the time unit
 	unit time.Duration
 }
 

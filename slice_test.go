@@ -154,7 +154,7 @@ type LazyAggregateStoreTest struct {
 	sliceManager     *SliceManager
 }
 
-func setupTest(tb testing.TB) (func(tb testing.TB), LazyAggregateStoreTest) {
+func SliceSetupTest(tb testing.TB) (func(tb testing.TB), LazyAggregateStoreTest) {
 	tb.Log("lazy aggregate store setup")
 
 	lazyAggregateStoreTest := LazyAggregateStoreTest{}
@@ -171,7 +171,7 @@ func setupTest(tb testing.TB) (func(tb testing.TB), LazyAggregateStoreTest) {
 }
 
 func TestLazySlice(t *testing.T) {
-	teardownTest, store := setupTest(t)
+	teardownTest, store := SliceSetupTest(t)
 	defer teardownTest(t)
 
 	store.windowManager.addWindowAssigner(NewTestWindow(Time))
@@ -188,7 +188,7 @@ func TestLazySlice(t *testing.T) {
 }
 
 func TestEagerSlice_Session(t *testing.T) {
-	teardownTest, store := setupTest(t)
+	teardownTest, store := SliceSetupTest(t)
 	defer teardownTest(t)
 
 	store.windowManager.addWindowAssigner(NewSessionWindow(Time, 1000))
@@ -205,7 +205,7 @@ func TestEagerSlice_Session(t *testing.T) {
 }
 
 func TestLazySlice_ContextAware(t *testing.T) {
-	teardownTest, store := setupTest(t)
+	teardownTest, store := SliceSetupTest(t)
 	defer teardownTest(t)
 	store.windowManager.addWindowAssigner(NewSessionWindow(Time, 1000))
 	store.windowManager.addWindowAssigner(NewTestWindow(Time))
@@ -220,10 +220,9 @@ func TestLazySlice_ContextAware(t *testing.T) {
 	assert.True(t, ok)
 }
 
-
 // TestSliceManager_ShiftLowerModification Shift the end of a slice to a lower timestamp and move tuples to correct slice
 func TestSliceManager_ShiftLowerModification(t *testing.T) {
-	teardownTest, store := setupTest(t)
+	teardownTest, store := SliceSetupTest(t)
 	defer teardownTest(t)
 	store.windowManager.addWindowAssigner(NewTestWindow(Time))
 
@@ -244,7 +243,6 @@ func TestSliceManager_ShiftLowerModification(t *testing.T) {
 	// shift slice start from 10-20 to 5-20 and respectively 0-5 -- move record with ts 8 and 9 to next slice
 	store.sliceManager.ProcessElement(1, 5)
 
-
 	// slice 0-5
 	assert.Equal(t, int64(0), store.aggregationStore.GetSlice(0).GetTStart())
 	assert.Equal(t, int64(5), store.aggregationStore.GetSlice(0).GetTEnd())
@@ -260,9 +258,9 @@ func TestSliceManager_ShiftLowerModification(t *testing.T) {
 	checkRecords([]int64{5, 8, 9, 14, 19}, store.aggregationStore.GetSlice(1).(*LazySlice).GetRecords().Range(), t)
 }
 
-// TestSliceManager_SShiftHigherModification Shift the end of a slice to a higher timestamp and move tuples to correct slice
-func TestSliceManager_SShiftHigherModification(t *testing.T) {
-	teardownTest, store := setupTest(t)
+// TestSliceManager_ShiftHigherModification Shift the end of a slice to a higher timestamp and move tuples to correct slice
+func TestSliceManager_ShiftHigherModification(t *testing.T) {
+	teardownTest, store := SliceSetupTest(t)
 	defer teardownTest(t)
 	store.windowManager.addWindowAssigner(NewTestWindow(Time))
 
@@ -281,7 +279,6 @@ func TestSliceManager_SShiftHigherModification(t *testing.T) {
 	// shift slice end from 0-10 to 0-15 and respectively 15-20 -- move tuple with ts 12 and 14 to previous slice
 	store.sliceManager.ProcessElement(1, 15)
 
-
 	// slice 0-15
 	assert.Equal(t, int64(0), store.aggregationStore.GetSlice(0).GetTStart())
 	assert.Equal(t, int64(15), store.aggregationStore.GetSlice(0).GetTEnd())
@@ -297,8 +294,181 @@ func TestSliceManager_SShiftHigherModification(t *testing.T) {
 	checkRecords([]int64{1, 12, 14, 15}, store.aggregationStore.GetSlice(0).(*LazySlice).GetRecords().Range(), t)
 }
 
+// TestSliceManager_ShiftModificationSplit Split slice into two slices due to a ShiftModification (Slice not Movable) and move tuples into new slice
+func TestSliceManager_ShiftModificationSplit(t *testing.T) {
+	teardownTest, store := SliceSetupTest(t)
+	defer teardownTest(t)
+	store.windowManager.addWindowAssigner(NewTestWindow(Time))
+
+	store.aggregationStore.AppendSlice(store.sliceFactory.CreateSlice2(0, 10, NewFlexible(2)))
+	sliceType := store.aggregationStore.GetSlice(0).GetType()
+	assert.False(t, sliceType.IsMovable())
+
+	store.sliceManager.ProcessElement(1, 1)
+	store.sliceManager.ProcessElement(1, 4)
+	store.sliceManager.ProcessElement(1, 8)
+	store.sliceManager.ProcessElement(1, 9)
+
+	store.aggregationStore.AppendSlice(store.sliceFactory.CreateSlice2(10, 20, NewFlexible(2)))
+	store.sliceManager.ProcessElement(1, 14)
+	store.sliceManager.ProcessElement(1, 19)
+
+	store.aggregationStore.AppendSlice(store.sliceFactory.CreateSlice2(20, 30, NewFlexible(2)))
+
+	store.sliceManager.ProcessElement(1, 24)
+
+	// shift slice start from 10-20 to 5-20 and respectively split slice into 0-5 and 5-10 -- move tuple with ts 8 and 9
+	store.sliceManager.ProcessElement(1, 5)
+
+	// slice 0-5
+	assert.Equal(t, int64(0), store.aggregationStore.GetSlice(0).GetTStart())
+	assert.Equal(t, int64(5), store.aggregationStore.GetSlice(0).GetTEnd())
+	assert.Equal(t, int64(1), store.aggregationStore.GetSlice(0).GetTFirst())
+	assert.Equal(t, int64(4), store.aggregationStore.GetSlice(0).GetTLast())
+
+	// add new slice: slice 5 - 10
+	assert.Equal(t, int64(5), store.aggregationStore.GetSlice(1).GetTStart())
+	assert.Equal(t, int64(10), store.aggregationStore.GetSlice(1).GetTEnd())
+	assert.Equal(t, int64(5), store.aggregationStore.GetSlice(1).GetTFirst())
+	assert.Equal(t, int64(9), store.aggregationStore.GetSlice(1).GetTLast())
+
+	// slice 10-20
+	assert.Equal(t, int64(10), store.aggregationStore.GetSlice(2).GetTStart())
+	assert.Equal(t, int64(20), store.aggregationStore.GetSlice(2).GetTEnd())
+	assert.Equal(t, int64(14), store.aggregationStore.GetSlice(2).GetTFirst())
+	assert.Equal(t, int64(19), store.aggregationStore.GetSlice(2).GetTLast())
+
+	checkRecords([]int64{5, 8, 9}, store.aggregationStore.GetSlice(1).(*LazySlice).GetRecords().Range(), t)
+}
+
+// TestSliceManager_ShiftModificationSplit2 Split slice into two slices due to a ShiftModification (Slice is not Movable because Flexible Slice counter != 1) and move tuples into new slice
+func TestSliceManager_ShiftModificationSplit2(t *testing.T) {
+	teardownTest, store := SliceSetupTest(t)
+	defer teardownTest(t)
+	store.windowManager.addWindowAssigner(NewTestWindow(Time))
+
+	store.aggregationStore.AppendSlice(store.sliceFactory.CreateSlice2(0, 10, NewFlexible(2)))
+	sliceType := store.aggregationStore.GetSlice(0).GetType()
+	assert.False(t, sliceType.IsMovable())
+
+	store.sliceManager.ProcessElement(1, 1)
+
+	store.aggregationStore.AppendSlice(store.sliceFactory.CreateSlice2(10, 20, NewFlexible(2)))
+	store.sliceManager.ProcessElement(1, 12)
+	store.sliceManager.ProcessElement(1, 14)
+	store.sliceManager.ProcessElement(1, 17)
+	store.sliceManager.ProcessElement(1, 19)
+
+	store.aggregationStore.AppendSlice(store.sliceFactory.CreateSlice2(20, 30, NewFlexible(2)))
+
+	store.sliceManager.ProcessElement(1, 24)
+
+	// shift slice start from 10-20 to 5-20 and respectively split slice into 0-5 and 5-10 -- move tuple with ts 8 and 9
+	store.sliceManager.ProcessElement(1, 15)
+
+	// slice 0-10
+	assert.Equal(t, int64(0), store.aggregationStore.GetSlice(0).GetTStart())
+	assert.Equal(t, int64(10), store.aggregationStore.GetSlice(0).GetTEnd())
+	assert.Equal(t, int64(1), store.aggregationStore.GetSlice(0).GetTFirst())
+	assert.Equal(t, int64(1), store.aggregationStore.GetSlice(0).GetTLast())
+
+	// add new slice: slice 10-15
+	assert.Equal(t, int64(10), store.aggregationStore.GetSlice(1).GetTStart())
+	assert.Equal(t, int64(15), store.aggregationStore.GetSlice(1).GetTEnd())
+	assert.Equal(t, int64(12), store.aggregationStore.GetSlice(1).GetTFirst())
+	assert.Equal(t, int64(14), store.aggregationStore.GetSlice(1).GetTLast())
+
+	// slice 15-20
+	assert.Equal(t, int64(15), store.aggregationStore.GetSlice(2).GetTStart())
+	assert.Equal(t, int64(20), store.aggregationStore.GetSlice(2).GetTEnd())
+	assert.Equal(t, int64(15), store.aggregationStore.GetSlice(2).GetTFirst())
+	assert.Equal(t, int64(19), store.aggregationStore.GetSlice(2).GetTLast())
+
+	checkRecords([]int64{15, 17, 19}, store.aggregationStore.GetSlice(2).(*LazySlice).GetRecords().Range(), t)
+}
+
+// TestSliceManager_AddModificationSplit Split one slice into two slices due to an AddModification and move tuples into new slice
+func TestSliceManager_AddModificationSplit(t *testing.T) {
+	teardownTest, store := SliceSetupTest(t)
+	defer teardownTest(t)
+	store.windowManager.addWindowAssigner(NewTestWindow(Time))
+
+	store.aggregationStore.AppendSlice(store.sliceFactory.CreateSlice2(0, 10, NewFlexible(1)))
+
+	store.sliceManager.ProcessElement(1, 1)
+
+	store.aggregationStore.AppendSlice(store.sliceFactory.CreateSlice2(10, 20, NewFlexible(1)))
+	store.sliceManager.ProcessElement(1, 14)
+	store.sliceManager.ProcessElement(1, 19)
+
+	store.aggregationStore.AppendSlice(store.sliceFactory.CreateSlice2(20, 30, NewFlexible(1)))
+
+	store.sliceManager.ProcessElement(1, 22)
+	store.sliceManager.ProcessElement(1, 24)
+	store.sliceManager.ProcessElement(1, 26)
+	store.sliceManager.ProcessElement(1, 27)
+
+	// split slice 20-30 into 20-25 and add new slice 25-30 -- move tuples with ts 26 and 27 to new slice
+	store.sliceManager.ProcessElement(1, 25)
+
+	// slice 20-25
+	assert.Equal(t, int64(20), store.aggregationStore.GetSlice(2).GetTStart())
+	assert.Equal(t, int64(25), store.aggregationStore.GetSlice(2).GetTEnd())
+	assert.Equal(t, int64(22), store.aggregationStore.GetSlice(2).GetTFirst())
+	assert.Equal(t, int64(24), store.aggregationStore.GetSlice(2).GetTLast())
+
+	// slice 25-30
+	assert.Equal(t, int64(25), store.aggregationStore.GetSlice(3).GetTStart())
+	assert.Equal(t, int64(30), store.aggregationStore.GetSlice(3).GetTEnd())
+	assert.Equal(t, int64(25), store.aggregationStore.GetSlice(3).GetTFirst())
+	assert.Equal(t, int64(27), store.aggregationStore.GetSlice(3).GetTLast())
+
+	checkRecords([]int64{25, 26, 27, 30}, store.aggregationStore.GetSlice(3).(*LazySlice).GetRecords().Range(), t)
+}
+
+// TestSliceManager_DeleteModification DeleteModification: merge slice
+func TestSliceManager_DeleteModification(t *testing.T) {
+	teardownTest, store := SliceSetupTest(t)
+	defer teardownTest(t)
+	store.windowManager.addWindowAssigner(NewTestWindow(Time))
+
+	store.aggregationStore.AppendSlice(store.sliceFactory.CreateSlice2(0, 10, NewFlexible(1)))
+
+	store.sliceManager.ProcessElement(1, 1)
+
+	store.aggregationStore.AppendSlice(store.sliceFactory.CreateSlice2(10, 20, NewFlexible(1)))
+	store.sliceManager.ProcessElement(1, 14)
+	store.sliceManager.ProcessElement(1, 19)
+
+	store.aggregationStore.AppendSlice(store.sliceFactory.CreateSlice2(20, 30, NewFlexible(1)))
+	store.sliceManager.ProcessElement(1, 24)
+	store.aggregationStore.AppendSlice(store.sliceFactory.CreateSlice2(30, 35, NewFlexible(1)))
+	store.sliceManager.ProcessElement(1, 31)
+	store.sliceManager.ProcessElement(1, 33)
+	store.aggregationStore.AppendSlice(store.sliceFactory.CreateSlice2(35, 45, NewFlexible(1)))
+	store.sliceManager.ProcessElement(1, 38)
+
+	// merge slice 20-30 and 30-35
+	store.sliceManager.ProcessElement(1, 35)
+
+	// slice 20-35
+	assert.Equal(t, int64(20), store.aggregationStore.GetSlice(2).GetTStart())
+	assert.Equal(t, int64(35), store.aggregationStore.GetSlice(2).GetTEnd())
+	assert.Equal(t, int64(24), store.aggregationStore.GetSlice(2).GetTFirst())
+	assert.Equal(t, int64(33), store.aggregationStore.GetSlice(2).GetTLast())
+
+	// slice 35-45
+	assert.Equal(t, int64(35), store.aggregationStore.GetSlice(3).GetTStart())
+	assert.Equal(t, int64(45), store.aggregationStore.GetSlice(3).GetTEnd())
+	assert.Equal(t, int64(35), store.aggregationStore.GetSlice(3).GetTFirst())
+	assert.Equal(t, int64(38), store.aggregationStore.GetSlice(3).GetTLast())
+
+	checkRecords([]int64{24, 31, 33}, store.aggregationStore.GetSlice(2).(*LazySlice).GetRecords().Range(), t)
+}
+
+
 func TestLazyAggregateStore_FindSliceByTs(t *testing.T) {
-	teardownTest, store := setupTest(t)
+	teardownTest, store := SliceSetupTest(t)
 	defer teardownTest(t)
 
 	var list []Slice
@@ -322,7 +492,7 @@ func TestLazyAggregateStore_FindSliceByTs(t *testing.T) {
 }
 
 func TestLazyAggregateStore_GetSliceByIndex(t *testing.T) {
-	teardownTest, store := setupTest(t)
+	teardownTest, store := SliceSetupTest(t)
 	defer teardownTest(t)
 
 	var list []Slice
@@ -343,7 +513,7 @@ func TestLazyAggregateStore_GetSliceByIndex(t *testing.T) {
 }
 
 func TestLazyAggregateStore_InsertValueToSlice(t *testing.T) {
-	teardownTest, store := setupTest(t)
+	teardownTest, store := SliceSetupTest(t)
 	defer teardownTest(t)
 
 	var list []Slice
@@ -367,7 +537,7 @@ func TestLazyAggregateStore_InsertValueToSlice(t *testing.T) {
 }
 
 func TestLazyAggregateStore_AggregateWindow(t *testing.T) {
-	teardownTest, store := setupTest(t)
+	teardownTest, store := SliceSetupTest(t)
 	defer teardownTest(t)
 
 	var list []Slice
