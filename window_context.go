@@ -1,7 +1,6 @@
 package window_processor
 
 import (
-	"github.com/emirpasic/gods/lists/arraylist"
 	"github.com/emirpasic/gods/sets/hashset"
 )
 
@@ -22,41 +21,35 @@ type Context interface {
 }
 
 type WindowContext struct {
-	activeWindows       *arraylist.List
+	activeWindows       []*ActiveWindow
 	modifiedWindowEdges *hashset.Set
 }
 
 func NewWindowContext() *WindowContext {
 	return &WindowContext{
-		activeWindows: arraylist.New(),
 	}
 }
 
 func (c *WindowContext) hasActiveWindows() bool {
-	return c.activeWindows.Empty()
+	return len(c.activeWindows) == 0
 }
 
 func (c *WindowContext) getActiveWindows() []*ActiveWindow {
-	activeWindows := make([]*ActiveWindow, c.numberOfActiveWindows())
-	for _, w := range c.activeWindows.Values() {
-		activeWindows = append(activeWindows, w.(*ActiveWindow))
-	}
-	return activeWindows
+	return c.activeWindows
 }
 
 func (c *WindowContext) addNewWindow(i int, start, end int64) *ActiveWindow {
 	w := newActiveWindow(start, end)
-	c.activeWindows.Insert(i, w)
+	c.activeWindows = append(c.activeWindows, nil)
+	copy(c.activeWindows[i+1:], c.activeWindows[i:])
+	c.activeWindows[i] = w
 	c.modifiedWindowEdges.Add(newAddModification(start))
 	c.modifiedWindowEdges.Add(newAddModification(end))
 	return w
 }
 
 func (c *WindowContext) getWindow(i int) *ActiveWindow {
-	if v, ok := c.activeWindows.Get(i); ok {
-		return v.(*ActiveWindow)
-	}
-	return nil
+	return c.activeWindows[i]
 }
 
 func (c *WindowContext) mergeWithPre(index int) *ActiveWindow {
@@ -79,7 +72,9 @@ func (c *WindowContext) assignNextWindowStart(position int64) int64 {
 func (c *WindowContext) removeWindow(index int) {
 	c.modifiedWindowEdges.Add(newDeleteModification(c.getWindow(index).start))
 	c.modifiedWindowEdges.Add(newDeleteModification(c.getWindow(index).end))
-	c.activeWindows.Remove(index)
+	copy(c.activeWindows[index:], c.activeWindows[index + 1:])
+	c.activeWindows[len(c.activeWindows)-1] = nil
+	c.activeWindows = c.activeWindows[:len(c.activeWindows)-1]
 }
 
 func (c *WindowContext) shiftStart(w *ActiveWindow, pos int64) {
@@ -88,7 +83,7 @@ func (c *WindowContext) shiftStart(w *ActiveWindow, pos int64) {
 }
 
 func (c *WindowContext) numberOfActiveWindows() int {
-	return c.activeWindows.Size()
+	return len(c.activeWindows)
 }
 
 func (c *WindowContext) shiftEnd(w *ActiveWindow, pos int64) {
@@ -173,9 +168,10 @@ type SessionContext struct {
 	gap           int64
 }
 
-func NewSessionContext(measure WindowMeasure) *SessionContext {
+func NewSessionContext(measure WindowMeasure, gap int64) *SessionContext {
 	c := new(SessionContext)
 	c.measure = measure
+	c.gap = gap
 	c.windowContext = NewWindowContext()
 	return c
 }
@@ -208,12 +204,19 @@ func (c *SessionContext) updateContext1(tuple interface{}, position int64, modif
 }
 
 func (c *SessionContext) assignNextWindowStart(position int64) int64 {
-	return c.windowContext.assignNextWindowStart(position)
+	return position + c.gap
 }
 
 func (c *SessionContext) triggerWindows(aggregateWindows WindowCollector, lastWatermark, currentWatermark int64) {
-	c.windowContext.triggerWindows(aggregateWindows, lastWatermark, currentWatermark)
-}
+	s := c.getWindow(0)
+	for s.getEnd()+c.gap < currentWatermark {
+		aggregateWindows.Trigger(s.getStart(), s.getEnd()+c.gap, c.measure)
+		c.removeWindow(0)
+		if c.hasActiveWindows() {
+			return
+		}
+		s = c.getWindow(0)
+	}}
 
 func (c *SessionContext) removeWindow(index int) {
 	c.windowContext.removeWindow(index)
@@ -270,7 +273,7 @@ func (c *SessionContext) updateContext2(tuple interface{}, position int64) *Acti
 
 func (c *SessionContext) getSession(position int64) int {
 	i := 0
-	for ; i <= c.numberOfActiveWindows(); i++ {
+	for ; i < c.numberOfActiveWindows(); i++ {
 		s := c.getWindow(i)
 		if s.getStart()-c.gap <= position && s.getEnd()+c.gap >= position {
 			return i
@@ -281,18 +284,3 @@ func (c *SessionContext) getSession(position int64) int {
 	return i - 1
 }
 
-func (c *SessionContext) AssignNextWindowStart(pos int64) int64 {
-	return pos + c.gap
-}
-
-func (c *SessionContext) TriggerWindows(aggregateWindows WindowCollector, lastWatermark, currentWatermark int64) {
-	s := c.getWindow(0)
-	for s.getEnd()+c.gap < currentWatermark {
-		aggregateWindows.Trigger(s.getStart(), s.getEnd()+c.gap, c.measure)
-		c.removeWindow(0)
-		if c.hasActiveWindows() {
-			return
-		}
-		s = c.getWindow(0)
-	}
-}

@@ -16,6 +16,7 @@ type ForwardContext interface {
 	CreateContext() Context
 }
 
+// FixedBandWindow this window starts at the defined start timestamp and ends at start + size
 type FixedBandWindow struct {
 	measure WindowMeasure
 	start   int64
@@ -40,10 +41,11 @@ func (w *FixedBandWindow) AssignNextWindowStart(pos int64) int64 {
 	} else if pos >= w.start && pos < w.start+w.size {
 		return w.start + w.size
 	} else {
-		return 9999
+		return Max_Value
 	}
 }
 
+// TriggerWindows triggers the window, if it started after lastWatermark and ended before currentWatermark
 func (w *FixedBandWindow) TriggerWindows(aggregateWindows WindowCollector, lastWatermark, currentWatermark int64) {
 	if lastWatermark <= w.start+w.size && w.start+w.size <= currentWatermark {
 		aggregateWindows.Trigger(w.start, w.start+w.size, w.measure)
@@ -68,14 +70,11 @@ func (w *SessionWindow) GetMeasure() WindowMeasure {
 	return w.measure
 }
 
-
 func (w *SessionWindow) CreateContext() Context {
-	ctx := NewSessionContext(w.measure)
+	ctx := NewSessionContext(w.measure, w.gap)
 	w.context = ctx
 	return ctx
 }
-
-
 
 type SlidingWindow struct {
 	measure WindowMeasure

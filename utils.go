@@ -8,7 +8,7 @@ type Comparable interface {
 }
 
 const (
-	Min_Value int64 = 0
+	Min_Value int64 = -99999
 	Max_Value int64 = 99999
 )
 

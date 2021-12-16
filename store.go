@@ -107,10 +107,14 @@ func (l *LazyAggregateStore) IsEmpty() bool {
 }
 
 func (l *LazyAggregateStore) Aggregate(aggregateWindows *AggregationWindowCollector, minTs, maxTs, minCount, maxCount int64) {
+	// start index = 0 || minTS
 	startIndex := Max(int64(l.FindSliceIndexByTimestamp(minTs)), 0)
 	startIndex = Min(startIndex, int64(l.FindSliceIndexByCount(minCount)))
+
+	// endIndex = size - 1 || maxTs
 	endIndex := Min(int64(l.Size()-1), int64(l.FindSliceIndexByTimestamp(maxTs)))
 	endIndex = Max(endIndex, int64(l.FindSliceIndexByCount(maxCount)))
+
 	for i := startIndex; i <= endIndex; i++ {
 		currentSlice := l.GetSlice(int(i))
 		for _, window := range aggregateWindows.Range() {
@@ -136,7 +140,6 @@ func (l *LazyAggregateStore) MergeSlice(sliceIndex int) {
 	l.slices[sliceIndex+1] = l.slices[len(l.slices)-1]
 	l.slices[len(l.slices)-1] = nil
 	l.slices = l.slices[:len(l.slices)-1]
-
 }
 
 func (l *LazyAggregateStore) FindSliceByEnd(start int64) int {

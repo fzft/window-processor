@@ -175,7 +175,6 @@ func (s *AggregateValueState) RemoveElement(streamRecord StreamRecord) {
 	} else {
 
 	}
-
 }
 
 func (s *AggregateValueState) recompute() {

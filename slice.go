@@ -316,6 +316,9 @@ func NewStreamSlicer(sliceManager *SliceManager, windowManager *WindowManager) *
 	return &StreamSlicer{
 		sliceManager:  sliceManager,
 		windowManager: windowManager,
+		maxEventTime: Min_Value,
+		minNextEdgeTs: Min_Value,
+		minNextEdgeCount: Min_Value,
 	}
 }
 
@@ -355,7 +358,7 @@ func (ss *StreamSlicer) DetermineSlices(te int64) {
 				if flexCount > 0 {
 					ss.sliceManager.AppendSlice(ss.minNextEdgeTs, NewFlexible(flexCount))
 				} else {
-					ss.sliceManager.AppendSlice(ss.minNextEdgeTs, NewFlexible(1))
+					ss.sliceManager.AppendSlice(ss.minNextEdgeTs, NewFixed())
 				}
 				ss.minNextEdgeTs = ss.calculateNextFixedEdge(te)
 			} else if flexCount > 0 {
