@@ -146,6 +146,28 @@ func (r ReduceAggregateFunctionTest) Lower(i interface{}) interface{} {
 	return i
 }
 
+type ReduceAggregateFunctionTest2 struct {
+}
+
+func (r ReduceAggregateFunctionTest2) Lift(i interface{}) interface{} {
+	return i
+}
+
+func (r ReduceAggregateFunctionTest2) Combine(partialAggregate1, partialAggregate2 interface{}) interface{} {
+	v1 := partialAggregate1.(int)
+	v2 := partialAggregate2.(int)
+	return v1 - v2
+}
+
+func (r ReduceAggregateFunctionTest2) LiftAndCombine(partialAggregateType interface{}, inputTuple interface{}) interface{} {
+	lifted := r.Lift(inputTuple)
+	return r.Combine(partialAggregateType, lifted)
+}
+
+func (r ReduceAggregateFunctionTest2) Lower(i interface{}) interface{} {
+	return i
+}
+
 type LazyAggregateStoreTest struct {
 	aggregationStore AggregationStore
 	stateFactory     StateFactory

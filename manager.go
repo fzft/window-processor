@@ -76,7 +76,7 @@ func (m *WindowManager) ProcessWatermark(watermarkTs int64) []AggregateWindow {
 	minTs := Max_Value
 	maxTs := Min_Value
 	minCount := m.currentCount
-	maxCount := Min_Value
+	maxCount := int64(0)
 	for _, aggregateWindow := range windows.Range() {
 		if aggregateWindow.GetMeasure() == Time {
 			minTs = Min(aggregateWindow.GetStart(), minTs)

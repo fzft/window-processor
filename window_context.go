@@ -259,7 +259,7 @@ func (c *SessionContext) updateContext2(tuple interface{}, position int64) *Acti
 		} else if s.getEnd() < position && s.getEnd()+c.gap >= position {
 			c.shiftEnd(s, position)
 			if sessionIndex < c.numberOfActiveWindows()-1 {
-				nextSession := c.getWindow(sessionIndex - 1)
+				nextSession := c.getWindow(sessionIndex + 1)
 				if s.getEnd()+c.gap >= nextSession.getStart() {
 					return c.mergeWithPre(sessionIndex + 1)
 				}

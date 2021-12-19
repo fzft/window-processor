@@ -173,7 +173,7 @@ func (s *AggregateValueState) RemoveElement(streamRecord StreamRecord) {
 		newPartial := f.ListAndInvert(s.partialAggregateState.Get(), streamRecord.record)
 		s.partialAggregateState.Set(newPartial)
 	} else {
-
+		s.recompute()
 	}
 }
 
@@ -181,7 +181,7 @@ func (s *AggregateValueState) recompute() {
 	s.clear()
 	for _, stream := range s.recordSetState.Range() {
 		if streamRecord, ok := stream.(StreamRecord); ok {
-			s.AddElement(streamRecord)
+			s.AddElement(streamRecord.record)
 		}
 	}
 }
@@ -296,7 +296,7 @@ func (s *AggregateWindowState) containsSlice(currentSlice Slice) bool {
 	if s.measure == Time {
 		return s.GetStart() <= currentSlice.GetTStart() && s.GetEnd() > currentSlice.GetTLast()
 	} else {
-		return s.GetStart() <= currentSlice.GetCLast() && s.GetEnd() >= currentSlice.GetCLast()
+		return s.GetStart() <= currentSlice.GetCStart() && s.GetEnd() >= currentSlice.GetCLast()
 	}
 }
 

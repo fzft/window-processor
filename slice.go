@@ -97,6 +97,7 @@ func NewAbstractSlice(startTs, endTs, cStart, cLast int64, t Type) *AbstractSlic
 		tEnd:   endTs,
 		cStart: cStart,
 		cLast:  cLast,
+		tLast: startTs,
 		tFirst:  Max_Value,
 	}
 }
@@ -188,6 +189,15 @@ func (s *EagerSlice) AddElement(element interface{}, ts int64) {
 
 func (s *EagerSlice) GetAggState() *AggregateState {
 	return s.state
+}
+
+func (s *EagerSlice) Merge(other Slice) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tLast = Max(s.tLast, other.GetTLast())
+	s.tFirst = Min(s.tFirst, other.GetTFirst())
+	s.SetTEnd(Max(s.tEnd, other.GetTEnd()))
+	s.GetAggState().Merge(other.GetAggState())
 }
 
 type LazySlice struct {
@@ -325,8 +335,8 @@ func NewStreamSlicer(sliceManager *SliceManager, windowManager *WindowManager) *
 // DetermineSlices processes every tuple in the data stream and checks if new slices have to be created
 func (ss *StreamSlicer) DetermineSlices(te int64) {
 	if ss.windowManager.HasCountMeasure() {
-		if ss.minNextEdgeCount == 0 || ss.windowManager.GetCurrentCount() == ss.minNextEdgeCount {
-			if ss.maxEventTime == 0 {
+		if ss.minNextEdgeCount == Min_Value || ss.windowManager.GetCurrentCount() == ss.minNextEdgeCount {
+			if ss.maxEventTime == Min_Value {
 				ss.maxEventTime = te
 			}
 			ss.sliceManager.AppendSlice(ss.maxEventTime, NewFixed())
@@ -372,7 +382,12 @@ func (ss *StreamSlicer) DetermineSlices(te int64) {
 
 func (ss *StreamSlicer) calculateNextFixedEdgeCount() int64 {
 	// next_edge will be the last edge
-	currentMinEdge := ss.minNextEdgeCount
+	var currentMinEdge int64
+	if ss.minNextEdgeCount == Min_Value {
+		currentMinEdge = 0
+	} else {
+		currentMinEdge = ss.minNextEdgeCount
+	}
 	tC := Max(ss.windowManager.GetCurrentCount(), currentMinEdge)
 	edge := Max_Value
 	for _, tw := range ss.windowManager.GetContextFreeWindows() {
